@@ -1,0 +1,5 @@
+https://websitetocheck.domain.com
+http://unsecureweb.com
+and more links...
+
+Put the list of links here (rename/copy to links.txt to use)
