@@ -1,3 +1,17 @@
+# Copyright 2024 Linaeus14
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 #!/bin/bash
 
 trap "exit 1" TERM
@@ -12,23 +26,24 @@ TEMP_DIR="./temp"
 LOGS_DIR="./logs"
 LINKSFILE="links.txt"
 
+if ! test -f "$LINKSFILE"; then
+    echo "Missing required file: links.txt" >>"$OUTPUTFILE"
+    exit 1
+fi
+
 # Create directories if they do not exist
 mkdir -p "$TEMP_DIR"
 mkdir -p "$LOGS_DIR"
 
 # Generate a unique output filename based on the current date and time
 timestamp=$(date '+log_D_%d_%m_%Y_T_%H_%M_%S')
-OUTPUTFILE="${LOGS_DIR}/${timestamp}.txt"
-ANALYSISFILE="${LOGS_DIR}/analysis_${timestamp}.txt"
+OUTPUTFILE="${LOGS_DIR}/${timestamp}.log"
+ANALYSISFILE="${LOGS_DIR}/analysis_${timestamp}.log"
+TEMPFILE="${TEMP_DIR}/webpage_content.html"
 >"$OUTPUTFILE"   # cleans the output file content
 >"$ANALYSISFILE" # cleans the analysis file content
 # Initialize the Excel file
 python auto.py initialize
-
-if ! test -f "$LINKSFILE"; then
-    echo "Missing required file: links.txt" >>"$OUTPUTFILE"
-    exit 1
-fi
 
 function stdOutput {
     if ! test "$SILENT" = true; then
@@ -50,7 +65,7 @@ function stdAnalysis {
 
 # Use curl to check internet connectivity
 if ! curl -s --head http://www.google.com | grep "200 OK" >/dev/null; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Internet connectivity not available" >>"$OUTPUTFILE"
+    stdError "Internet connectivity not available"
     exit 1
 fi
 
@@ -85,7 +100,7 @@ while IFS= read -r WEBPAGE || [[ -n "$WEBPAGE" ]]; do
     stdOutput "$Count"
 
     # Check website HTTP status
-    HTTPCODE=$(curl --max-time 30 --write-out "%{http_code}" --output /dev/null "$WEBPAGE")
+    HTTPCODE=$(curl --max-time 30 --write-out "%{http_code}" --output $TEMPFILE "$WEBPAGE")
     CURL_EXIT_CODE=$?
 
     # Determine the status
@@ -181,6 +196,51 @@ while IFS= read -r WEBPAGE || [[ -n "$WEBPAGE" ]]; do
         ((NoSslCount++))
     fi
 
+    # Now check the content of the response for proper content standards
+    CONTENT=$(cat $TEMPFILE)
+
+    # Content Standards Check
+    if [ "$REDIRECT" == "302" ] || [ "$REDIRECT" == "307" ]; then
+        CONTENT_CHECK="Redirected"
+    else
+        CONTENT_CHECK="Fine"
+        if [[ "$CONTENT" == *"<html"* && "$CONTENT" == *"</html>"* ]]; then
+            stdOutput "Content structure check passed -> The page contains valid HTML structure."
+
+            # Common error message check
+            if [[ "$CONTENT" == *"404 Not Found"* || "$CONTENT" == *"500 Internal Server Error"* || "$CONTENT" == *"tidak bisa diakses"* || "$CONTENT" == *"502 Bad Gateway"* || "$CONTENT" == *"Maintenance"* ]]; then
+                stdError "Content indicates a server error -> The page is displaying an error message."
+                CONTENT_CHECK="Error Page"
+            else
+                stdOutput "No common error messages found -> The page content appears to be error-free."
+
+                # Keyword or pattern check
+                KEYWORDS=("Welcome" "Selamat datang" "Contact Us" "Kontak" "Home" "Beranda" "Sign in" "login" "Register" "Daftar" "Profile" "Profil")
+                for keyword in "${KEYWORDS[@]}"; do
+                    if [[ "$CONTENT" == *"$keyword"* ]]; then
+                        stdOutput "Content check passed -> The page contains the expected keyword: $keyword."
+                        KEYWORD_FOUND=true
+                        break
+                    fi
+                done
+
+                # If no keyword was found
+                if [ "$KEYWORD_FOUND" = false ]; then
+                    stdError "Content check failed -> The page does not contain any of the expected keywords."
+                    CONTENT_CHECK="No Keyword"
+                fi
+            fi
+        else
+            stdError "Content structure check failed -> The page does not contain a valid HTML structure."
+            CONTENT_CHECK="Invalid"
+        fi
+
+        #clears the temp content
+        if ! test "$SILENT" = true; then
+            echo "" >$TEMPFILE 2>/dev/null
+        fi
+    fi
+
     # Log the curl error
     if [ $CURL_EXIT_CODE -ne 0 ]; then
         case $CURL_EXIT_CODE in
@@ -208,7 +268,7 @@ while IFS= read -r WEBPAGE || [[ -n "$WEBPAGE" ]]; do
     fi
 
     # Call Python script to append data to Excel
-    python auto.py "$WEBPAGE" "$STATUS" "$SSL_STATUS" "$DAYS_UNTIL_EXPIRATION" "$REDIRECT"
+    python auto.py "$WEBPAGE" "$STATUS" "$SSL_STATUS" "$DAYS_UNTIL_EXPIRATION" "$REDIRECT" "$CONTENT_CHECK"
 
     stdOutput "|"
 done <"$LINKSFILE"
@@ -245,4 +305,6 @@ stdAnalysis "Expired SSL certificates : $SslExpiredCount"
 stdAnalysis "SSL fetch errors : $SslFetchErrorCount"
 stdAnalysis "|"
 
+# Cleanup
+rm -rf $TEMP_DIR 2>/dev/null
 echo "Script execution completed. Check $OUTPUTFILE and $ANALYSISFILE for details."

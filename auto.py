@@ -1,3 +1,17 @@
+# Copyright 2024 Linaeus14
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import sys
 import pandas as pd
 from datetime import datetime
@@ -24,6 +38,7 @@ def initialize_excel():
             'SSL Status',
             'Days Until Expiration',
             'Redirect',
+            'Content',
             'Date'
         ])
     df.to_excel(excel_file, index=False)
@@ -45,7 +60,7 @@ def get_latest_excel_file():
         sys.exit(1)
 
 
-def append_row(link, status, ssl_status, days_until_expiration, redirect):
+def append_row(link, status, ssl_status, days_until_expiration, redirect, content):
     # Retrieve the latest Excel file
     excel_file = get_latest_excel_file()
     # Append a row with the current data to the Excel file
@@ -56,6 +71,7 @@ def append_row(link, status, ssl_status, days_until_expiration, redirect):
         'SSL Status': [ssl_status],
         'Days Until Expiration': [days_until_expiration],
         'Redirect': [redirect],
+        'Content': [content],
         'Date': [datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
     })
     df = pd.concat([df, new_row], ignore_index=True)
@@ -65,16 +81,24 @@ def append_row(link, status, ssl_status, days_until_expiration, redirect):
 if __name__ == "__main__":
     if len(sys.argv) == 2 and sys.argv[1] == 'initialize':
         initialize_excel()
-    elif len(sys.argv) == 6:
+    elif len(sys.argv) == 7:
         link = sys.argv[1]
         status = sys.argv[2]
         ssl_status = sys.argv[3]
         days_until_expiration = sys.argv[4]
         redirect = sys.argv[5]
-        append_row(link, status, ssl_status, days_until_expiration, redirect)
+        content = sys.argv[6]
+        append_row(
+            link,
+            status,
+            ssl_status,
+            days_until_expiration,
+            redirect,
+            content
+        )
     else:
         print(
             "Invalid arguments. Usage:\n"
             "  python script.py initialize\n"
-            "  python script.py <link> <status> <redirect> <ssl_status> <days_until_expiration>"
+            "  python script.py <link> <status> <redirect> <ssl_status> <days_until_expiration> <content>"
         )
